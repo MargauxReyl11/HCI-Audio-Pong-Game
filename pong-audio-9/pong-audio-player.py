@@ -111,16 +111,15 @@ def on_receive_paddle(address, *args):
     pass
 
 def on_receive_hitpaddle(address, *args):
-    # example sound
-    hit()
+    success()
     print("> ball hit at paddle " + str(args[0]) )
 
 def on_receive_ballout(address, *args):
+    miss()
     print("> ball went out on left/right side: " + str(args[0]) )
 
 def on_receive_ballbounce(address, *args):
-    # example sound
-    hit()
+    bounce()
     print("> ball bounced on up/down side: " + str(args[0]) )
 
 def on_receive_scores(address, *args):
@@ -354,7 +353,15 @@ keyword_thread.start()
 def hit():
     playsound('hit.wav', False)
 
-hit()
+def success():
+    playsound('success.mp3', False)
+
+def miss():
+    playsound('fail.mp3', False)
+
+
+def bounce():
+    playsound('boing.mp3', False)
 # -------------------------------------#
 
 # OSC connection
