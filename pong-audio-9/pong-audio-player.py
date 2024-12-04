@@ -33,6 +33,10 @@ import numpy as num
 import pyaudio
 import wave
 
+import os
+from pocketsphinx import Endpointer, Decoder, set_loglevel
+from ball_pitch import BallTone
+
 mode = ''
 debug = False
 quit = False
@@ -77,13 +81,30 @@ if __name__ == '__main__' :
 # functions receiving messages from host
 # TODO: add audio output so you know what's going on in the game
 
+ball_tone = BallTone(base_freq=440)  # Initialize ball tone
+prev_x_pos = None
+
 def on_receive_game(address, *args):
     print("> game state: " + str(args[0]))
     # 0: menu, 1: game starts
+    if int(args[0]) == 1:  # Game starts
+        print("> Starting ball tone.")
+        ball_tone.start()
+    elif int(args[0]) == 0:  # Game ends or returns to menu
+        print("> Stopping ball tone.")
+        ball_tone.stop()
 
 def on_receive_ball(address, *args):
     # print("> ball position: (" + str(args[0]) + ", " + str(args[1]) + ")")
-    pass
+    global prev_x_pos
+
+    x_pos, y_pos = args  # Current ball position
+    player_side = "left" if mode == "p1" else "right"
+
+    if prev_x_pos is not None:
+        ball_tone.update_pitch(x_pos, y_pos, prev_x_pos, max_x=800, max_y=450, player_side=player_side)
+
+    prev_x_pos = x_pos
 
 def on_receive_paddle(address, *args):
     # print("> paddle position: (" + str(args[0]) + ", " + str(args[1]) + ")")
@@ -146,6 +167,7 @@ dispatcher_player.map("/p2bigpaddle", on_receive_p2_bigpaddle)
 # TODO add your audio control so you can play the game eyes free and hands free! add function like "client.send_message()" to control the host game
 # We provided two examples to use audio input, but you don't have to use these. You are welcome to use any other library/program, as long as it respects the OSC protocol from our host (which you cannot change)
 
+'''
 # example 1: speech recognition functions using google api
 # -------------------------------------#
 def listen_to_speech():
@@ -171,6 +193,7 @@ def listen_to_speech():
         except sr.RequestError as e:
             print("[speech recognition] Could not request results from Google Speech Recognition service; {0}".format(e))
 # -------------------------------------#
+'''
 
 # example 2: pitch & volume detection
 # -------------------------------------#
@@ -197,24 +220,119 @@ def sense_microphone():
 
         # Compute the pitch of the microphone input
         pitch = pDetection(samples)[0]
-        # Compute the energy (volume) of the mic input
-        volume = num.sum(samples**2)/len(samples)
-        # Format the volume output so that at most
-        # it has six decimal numbers.
-        volume = "{:.6f}".format(volume)
+        move_paddle(pitch)
+        #volume = num.sum(samples**2)/len(samples)
+        #volume = "{:.6f}".format(volume)
 
         # uncomment these lines if you want pitch or volume
         if debug:
-            print("pitch "+str(pitch)+" volume "+str(volume))
+            print("pitch "+str(pitch))
+
+def move_paddle(freq):
+    """
+    Move the paddle based on the given pitch, shifted up by half an octave (+6 semitones).
+    New frequency range: 369 to 740 (adjusted for half-octave shift).
+    Paddle height range: 0 to 450
+    """
+    position = 225  # Default paddle position
+    new_min_freq = 369  # Adjusted for half-octave
+    new_max_freq = 740  # Adjusted for half-octave
+
+    if new_min_freq <= freq <= new_max_freq:
+        # Map the frequency directly to the paddle position
+        position = ((freq - new_min_freq) / (new_max_freq - new_min_freq)) * 450
+        position = float(position)  # Ensure position is a standard float
+        client.send_message('/setpaddle', position)
+
 # -------------------------------------#
 
 
+#attempt to listen to words
+# -------------------------------------#
+
+"""
+used as inspo: https://github.com/cmusphinx/pocketsphinx/blob/master/examples/live.py
+and: https://cmusphinx.github.io/wiki/tutoriallm/#keyword-lists 
+"""
+
+def detect():
+    """
+    Continuously listens for keywords 'start game' and 'pause game'
+    and sends corresponding OSC messages to control the game.
+    """
+    set_loglevel("INFO")
+
+    # Initialize endpointer and decoder
+    ep = Endpointer()
+    decoder = Decoder(samprate=ep.sample_rate)
+    keywords_file = "keywords.list"
+
+    # Load keyword spotting configuration
+    decoder.add_kws("keywords", keywords_file)
+    decoder.activate_search("keywords")
+    decoder.start_utt()  # Start utterance recognition
+
+    # Setup PyAudio
+    p = pyaudio.PyAudio()
+    stream = p.open(
+        format=pyaudio.paInt16,
+        channels=1,
+        rate=int(ep.sample_rate),
+        input=True,
+        frames_per_buffer=ep.frame_bytes // 2,
+    )
+    stream.start_stream()
+
+    while not quit:
+            # Read audio frames
+            frame = stream.read(ep.frame_bytes // 2, exception_on_overflow=False)
+            prev_in_speech = ep.in_speech
+            speech = ep.process(frame)
+
+            if speech is not None:
+                if not prev_in_speech and ep.in_speech:
+                    print(f"[DEBUG] Speech started at {ep.speech_start:.2f} seconds")
+
+                decoder.process_raw(speech, False, False)
+
+                if decoder.hyp() is not None:
+                    keyword = decoder.hyp().hypstr.strip().lower()
+                    print(f"Keyword detected: {keyword}")
+
+                    # Map keywords to actions
+                    if keyword == "start game":
+                        client.send_message('/setgame', 1)  # Send start game signal
+                    elif keyword == "pause game":
+                        client.send_message('/setgame', 0)
+                    elif keyword == "easy":
+                        client.send_message('/setlevel', 1) 
+                    elif keyword == "hard":
+                        client.send_message('/setlevel', 2) 
+                    elif keyword == "insane":
+                        client.send_message('/setlevel', 3) 
+
+                    # Reset for next utterance
+                    decoder.end_utt()
+                    decoder.start_utt()
+
+                # End utterance when speech stops
+                if prev_in_speech and not ep.in_speech:
+                    print(f"[DEBUG] Speech ended at {ep.speech_end:.2f} seconds")
+                    decoder.end_utt()
+                    decoder.start_utt()
+
+
+
+# -------------------------------------#
+
+'''
 # speech recognition thread
 # -------------------------------------#
 # start a thread to listen to speech
 speech_thread = threading.Thread(target=listen_to_speech, args=())
 speech_thread.daemon = True
 speech_thread.start()
+'''
 
 # pitch & volume detection
 # -------------------------------------#
@@ -222,6 +340,13 @@ speech_thread.start()
 microphone_thread = threading.Thread(target=sense_microphone, args=())
 microphone_thread.daemon = True
 microphone_thread.start()
+# -------------------------------------#
+
+#  keyword detection
+# -------------------------------------#
+keyword_thread = threading.Thread(target=detect, args=())
+keyword_thread.daemon = True
+keyword_thread.start()
 # -------------------------------------#
 
 # Play some fun sounds?

@@ -1,5 +1,6 @@
 python-osc
-aubio
+# aubio
+PyObjC
 numpy
 playsound==1.2.2
 PyAudio
