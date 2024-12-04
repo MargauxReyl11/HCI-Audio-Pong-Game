@@ -1,5 +1,7 @@
-start game /1e-30/
-pause game /1e-30/
-easy /1e-40/
-hard /1e-30/
-insane /1e-40/
+start /1e-1/
+pause /1e-1/
+easy level /1e-1/
+hard level /1e-1/
+insane level /1e-1/
+power up /1e-1/
+instructions /1e-1/

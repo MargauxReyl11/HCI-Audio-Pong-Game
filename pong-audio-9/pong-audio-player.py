@@ -36,6 +36,8 @@ import wave
 import os
 from pocketsphinx import Endpointer, Decoder, set_loglevel
 from ball_pitch import BallTone
+import pyttsx3
+import subprocess
 
 mode = ''
 debug = False
@@ -81,17 +83,19 @@ if __name__ == '__main__' :
 # functions receiving messages from host
 # TODO: add audio output so you know what's going on in the game
 
-ball_tone = BallTone(base_freq=440)  # Initialize ball tone
+
+ball_tone = BallTone(base_freq=440)  
 prev_x_pos = None
+engine = pyttsx3.init()
+welcome_played = False  # Global flag to track if welcome message was played
 
 def on_receive_game(address, *args):
     print("> game state: " + str(args[0]))
     # 0: menu, 1: game starts
-    if int(args[0]) == 1:  # Game starts
-        print("> Starting ball tone.")
+    welcome()
+    if int(args[0]) == 1:  
         ball_tone.start()
-    elif int(args[0]) == 0:  # Game ends or returns to menu
-        print("> Stopping ball tone.")
+    elif int(args[0]) == 0:
         ball_tone.stop()
 
 def on_receive_ball(address, *args):
@@ -124,16 +128,26 @@ def on_receive_ballbounce(address, *args):
 
 def on_receive_scores(address, *args):
     print("> scores now: " + str(args[0]) + " vs. " + str(args[1]))
+    player1_score = args[0]
+    player2_score = args[1]  
+    score_message = f"say The score is now {player1_score} to {player2_score}."
+    subprocess.run(score_message, shell=True)
+    
+
 
 def on_receive_level(address, *args):
     print("> level now: " + str(args[0]))
 
 def on_receive_powerup(address, *args):
-    print("> powerup now: " + str(args[0]))
-    # 1 - freeze p1
-    # 2 - freeze p2
-    # 3 - adds a big paddle to p1, not use
-    # 4 - adds a big paddle to p2, not use
+    if args[0] == 1:
+        player1_frozen()
+    elif args[0] == 2:
+        player2_frozen()
+    elif args[0] == 3:
+        p1_paddle()
+    elif args[0] == 4:
+        p2_paddle()
+
 
 def on_receive_p1_bigpaddle(address, *args):
     print("> p1 has a big paddle now")
@@ -166,46 +180,18 @@ dispatcher_player.map("/p2bigpaddle", on_receive_p2_bigpaddle)
 # TODO add your audio control so you can play the game eyes free and hands free! add function like "client.send_message()" to control the host game
 # We provided two examples to use audio input, but you don't have to use these. You are welcome to use any other library/program, as long as it respects the OSC protocol from our host (which you cannot change)
 
-'''
-# example 1: speech recognition functions using google api
-# -------------------------------------#
-def listen_to_speech():
-    global quit
-    while not quit:
-        # obtain audio from the microphone
-        r = sr.Recognizer()
-        with sr.Microphone() as source:
-            print("[speech recognition] Say something!")
-            audio = r.listen(source)
-        # recognize speech using Google Speech Recognition
-        try:
-            # for testing purposes, we're just using the default API key
-            # to use another API key, use `r.recognize_google(audio, key="GOOGLE_SPEECH_RECOGNITION_API_KEY")`
-            # instead of `r.recognize_google(audio)`
-            recog_results = r.recognize_google(audio)
-            print("[speech recognition] Google Speech Recognition thinks you said \"" + recog_results + "\"")
-            # if recognizing quit and exit then exit the program
-            if recog_results == "play" or recog_results == "start":
-                client.send_message('/g', 1)
-        except sr.UnknownValueError:
-            print("[speech recognition] Google Speech Recognition could not understand audio")
-        except sr.RequestError as e:
-            print("[speech recognition] Could not request results from Google Speech Recognition service; {0}".format(e))
-# -------------------------------------#
-'''
 
-# example 2: pitch & volume detection
+#pitch & volume detection & paddle move
 # -------------------------------------#
-# PyAudio object.
 p = pyaudio.PyAudio()
-# Open stream.
+
 stream = p.open(format=pyaudio.paFloat32,
     channels=1, rate=44100, input=True,
-    frames_per_buffer=1024)
-# Aubio's pitch detection.
+    frames_per_buffer=1024, input_device_index=0)
+
 pDetection = aubio.pitch("default", 2048,
     2048//2, 44100)
-# Set unit.
+
 pDetection.set_unit("Hz")
 pDetection.set_silence(-40)
 
@@ -217,13 +203,11 @@ def sense_microphone():
         samples = num.fromstring(data,
             dtype=aubio.float_type)
 
-        # Compute the pitch of the microphone input
         pitch = pDetection(samples)[0]
         move_paddle(pitch)
         #volume = num.sum(samples**2)/len(samples)
         #volume = "{:.6f}".format(volume)
 
-        # uncomment these lines if you want pitch or volume
         if debug:
             print("pitch "+str(pitch))
 
@@ -233,14 +217,13 @@ def move_paddle(freq):
     New frequency range: 369 to 740 (adjusted for half-octave shift).
     Paddle height range: 0 to 450
     """
-    position = 225  # Default paddle position
-    new_min_freq = 369  # Adjusted for half-octave
-    new_max_freq = 740  # Adjusted for half-octave
+    position = 225 
+    new_min_freq = 261  
+    new_max_freq = 589 
 
     if new_min_freq <= freq <= new_max_freq:
-        # Map the frequency directly to the paddle position
         position = ((freq - new_min_freq) / (new_max_freq - new_min_freq)) * 450
-        position = float(position)  # Ensure position is a standard float
+        position = float(position) 
         client.send_message('/setpaddle', position)
 
 # -------------------------------------#
@@ -253,7 +236,6 @@ def move_paddle(freq):
 used as inspo: https://github.com/cmusphinx/pocketsphinx/blob/master/examples/live.py
 and: https://cmusphinx.github.io/wiki/tutoriallm/#keyword-lists 
 """
-
 def detect():
     """
     Continuously listens for keywords 'start game' and 'pause game'
@@ -261,15 +243,13 @@ def detect():
     """
     set_loglevel("INFO")
 
-    # Initialize endpointer and decoder
     ep = Endpointer()
     decoder = Decoder(samprate=ep.sample_rate)
     keywords_file = "keywords.list"
 
-    # Load keyword spotting configuration
     decoder.add_kws("keywords", keywords_file)
     decoder.activate_search("keywords")
-    decoder.start_utt()  # Start utterance recognition
+    decoder.start_utt()  
 
     # Setup PyAudio
     p = pyaudio.PyAudio()
@@ -279,18 +259,18 @@ def detect():
         rate=int(ep.sample_rate),
         input=True,
         frames_per_buffer=ep.frame_bytes // 2,
+        input_device_index=0
     )
     stream.start_stream()
 
     while not quit:
-            # Read audio frames
             frame = stream.read(ep.frame_bytes // 2, exception_on_overflow=False)
             prev_in_speech = ep.in_speech
             speech = ep.process(frame)
 
             if speech is not None:
-                if not prev_in_speech and ep.in_speech:
-                    print(f"[DEBUG] Speech started at {ep.speech_start:.2f} seconds")
+                #if not prev_in_speech and ep.in_speech:
+                    #print(f"[DEBUG] Speech started at {ep.speech_start:.2f} seconds")
 
                 decoder.process_raw(speech, False, False)
 
@@ -298,40 +278,39 @@ def detect():
                     keyword = decoder.hyp().hypstr.strip().lower()
                     print(f"Keyword detected: {keyword}")
 
-                    # Map keywords to actions
-                    if keyword == "start game":
+                    if keyword == "start":
                         client.send_message('/setgame', 1)  # Send start game signal
-                    elif keyword == "pause game":
+                        start()
+                    elif keyword == "pause":
                         client.send_message('/setgame', 0)
-                    elif keyword == "easy":
+                        pause()
+                    elif keyword == "easy level":
                         client.send_message('/setlevel', 1) 
-                    elif keyword == "hard":
+                        easy()
+                    elif keyword == "hard level":
                         client.send_message('/setlevel', 2) 
-                    elif keyword == "insane":
+                        hard()
+                    elif keyword == "insane level":
                         client.send_message('/setlevel', 3) 
+                        insane()
+                    elif keyword == "power up":
+                        client.send_message('/setbigpaddle', 0) 
+                        power()
+                    elif keyword == "instructions":
+                        client.send_message('/setgame', 0)
+                        global welcome_played
+                        welcome_played = False 
+                        welcome()
 
-                    # Reset for next utterance
                     decoder.end_utt()
                     decoder.start_utt()
 
-                # End utterance when speech stops
                 if prev_in_speech and not ep.in_speech:
                     print(f"[DEBUG] Speech ended at {ep.speech_end:.2f} seconds")
                     decoder.end_utt()
                     decoder.start_utt()
-
-
-
 # -------------------------------------#
 
-'''
-# speech recognition thread
-# -------------------------------------#
-# start a thread to listen to speech
-speech_thread = threading.Thread(target=listen_to_speech, args=())
-speech_thread.daemon = True
-speech_thread.start()
-'''
 
 # pitch & volume detection
 # -------------------------------------#
@@ -351,17 +330,69 @@ keyword_thread.start()
 # Play some fun sounds?
 # -------------------------------------#
 def hit():
-    playsound('hit.wav', False)
+    playsound('audio_files/hit.wav', False)
 
 def success():
-    playsound('success.mp3', False)
+    playsound('audio_files/success.mp3', False)
 
 def miss():
-    playsound('fail.mp3', False)
-
+    playsound('audio_files/fail.mp3', False)
 
 def bounce():
-    playsound('boing.mp3', False)
+    playsound('audio_files/boing.mp3', False)
+
+def player1_frozen():
+    playsound('audio_files/player1_frozen.mp3', False)
+
+def player2_frozen():
+    playsound('audio_files/player2_frozen.mp3', False)
+
+def start():
+    playsound('audio_files/start_game.mp3', False)
+
+def welcome():
+    global welcome_played
+    if not welcome_played:  # Check if welcome has not been played
+        print("[DEBUG] Playing welcome message.")
+        playsound('audio_files/welcome.mp3', False)
+        welcome_played = True  # Mark as played
+    else:
+        print("[DEBUG] Welcome message already played.")
+
+
+def pause():
+    playsound('audio_files/pause.mp3', False)
+
+def p1_paddle():
+    playsound('audio_files/player1_big_paddle.mp3', False)
+
+def p2_paddle():
+    playsound('audio_files/player2_big_paddle.mp3', False)
+
+def easy():
+    playsound('audio_files/easy.mp3', False)
+
+def hard():
+    playsound('audio_files/hard.mp3', False)
+
+def insane():
+    playsound('audio_files/insane.mp3', False)
+
+def power():
+    playsound('audio_files/power_up.mp3', False)
+
+# -------------------------------------#
+
+#messages
+# -------------------------------------#
+#https://pypi.org/project/pyttsx3/ 
+
+engine_lock = threading.Lock()
+
+def output_message(message): 
+    with engine_lock: 
+        engine.say(message)
+        engine.runAndWait()
 # -------------------------------------#
 
 # OSC connection

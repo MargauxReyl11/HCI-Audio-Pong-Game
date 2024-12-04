@@ -15,10 +15,10 @@ class BallTone:
 
     def __init__(self, base_freq: float) -> None:
         self.base_freq = base_freq
-        self.sine_wave = pysinewave.SineWave()  # Initialize a SineWave object
+        self.sine_wave = pysinewave.SineWave() 
         self.sine_wave.set_frequency(base_freq)
-        self.sine_wave.set_volume(ampl_to_db(0.5))  # Default volume
-        self.is_playing = False  # Track whether the tone is playing
+        self.sine_wave.set_volume(ampl_to_db(0.5))  
+        self.is_playing = False  
 
     def start(self):
         """Start playing the sine wave continuously."""
@@ -51,28 +51,23 @@ class BallTone:
         )
 
         if not moving_toward_player:
-            # Stop the sine wave if moving away
             if self.is_playing:
                 print("> Ball moving away, stopping tone.")
                 self.stop()
             return
 
-        # Ensure the sine wave is playing when the ball moves toward the player
         if not self.is_playing:
             print("> Ball moving toward player, starting tone.")
             self.start()
 
-        # Normalize position for volume and pitch calculations
+        
         norm_x = x_pos / max_x
-        group_height = max_y / 12  # Divide height into 12 groups for pitch
-        group_index = int(y_pos // group_height)  # Determine group index
-        pitch = min(group_index, 12) + 6 # Cap pitch to 12
+        group_height = max_y / 15 
+        group_index = int(y_pos // group_height)  
+        pitch = min(group_index, 15) 
 
-        # Map volume linearly based on horizontal position
         volume_factor = norm_x if player_side == "right" else (1 - norm_x)
         volume = volume_factor  
 
-        # Update the sine wave pitch and volume
-        print(f"> Updating tone: pitch={pitch}, volume={volume:.2f}, moving_toward_player={moving_toward_player}")
         self.sine_wave.set_pitch(pitch)
         self.sine_wave.set_volume(ampl_to_db(volume))
