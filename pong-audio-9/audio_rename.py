@@ -3,7 +3,7 @@ from gtts import gTTS
 import os
 
 sentences = {
-    "welcome": "Thanks for playing Pong! Match pitch to move your paddle and get the ball! Say start to start playing, say pause in order to pause any time. Change levels by saying easy level, hard level, or insane level. While playing, say power up if you want to use the powers available. Say instructions if you would like to hear this message again. Good luck",
+    "welcome": "Thanks for playing Pong! Start by saying hello to the other player. In order to play Pong, match the outputted pitch to move your paddle and get the ball! Say start to start playing, say pause in order to pause any time. Change levels by saying easy level, hard level, or insane level. If you want to check the current level, you can say what level. While playing, say power up if you want to use the powers available. Say instructions if you would like to hear this message again. Good luck",
 }
 
 language = 'en'

@@ -88,21 +88,24 @@ ball_tone = BallTone(base_freq=440)
 prev_x_pos = None
 engine = pyttsx3.init()
 welcome_played = False  # Global flag to track if welcome message was played
+current_level = None
 
 def on_receive_game(address, *args):
     print("> game state: " + str(args[0]))
     # 0: menu, 1: game starts
     welcome()
-    if int(args[0]) == 1:  
+    if int(args[0]) == 1: 
+        start() 
         ball_tone.start()
     elif int(args[0]) == 0:
         ball_tone.stop()
+        pause()
 
 def on_receive_ball(address, *args):
     # print("> ball position: (" + str(args[0]) + ", " + str(args[1]) + ")")
     global prev_x_pos
 
-    x_pos, y_pos = args  # Current ball position
+    x_pos, y_pos = args 
     player_side = "left" if mode == "p1" else "right"
 
     if prev_x_pos is not None:
@@ -124,10 +127,8 @@ def on_receive_ballout(address, *args):
 
 def on_receive_ballbounce(address, *args):
     bounce()
-    print("> ball bounced on up/down side: " + str(args[0]) )
 
 def on_receive_scores(address, *args):
-    print("> scores now: " + str(args[0]) + " vs. " + str(args[1]))
     player1_score = args[0]
     player2_score = args[1]  
     score_message = f"say The score is now {player1_score} to {player2_score}."
@@ -137,6 +138,14 @@ def on_receive_scores(address, *args):
 
 def on_receive_level(address, *args):
     print("> level now: " + str(args[0]))
+    global current_level
+    level_map = {
+        1: "Easy",
+        2: "Hard",
+        3: "Insane"
+    }
+    level = int(args[0]) 
+    current_level = level_map.get(level, "Unknown") 
 
 def on_receive_powerup(address, *args):
     if args[0] == 1:
@@ -150,15 +159,15 @@ def on_receive_powerup(address, *args):
 
 
 def on_receive_p1_bigpaddle(address, *args):
-    print("> p1 has a big paddle now")
+    power()
     # when p1 activates their big paddle
 
 def on_receive_p2_bigpaddle(address, *args):
-    print("> p2 has a big paddle now")
+    power()
     # when p2 activates their big paddle
 
 def on_receive_hi(address, *args):
-    print("> opponent says hi!")
+    subprocess.run("say other Player says hi", shell=True)
 
 dispatcher_player = dispatcher.Dispatcher()
 dispatcher_player.map("/hi", on_receive_hi)
@@ -187,7 +196,7 @@ p = pyaudio.PyAudio()
 
 stream = p.open(format=pyaudio.paFloat32,
     channels=1, rate=44100, input=True,
-    frames_per_buffer=1024, input_device_index=0)
+    frames_per_buffer=1024, input_device_index=2)
 
 pDetection = aubio.pitch("default", 2048,
     2048//2, 44100)
@@ -259,7 +268,7 @@ def detect():
         rate=int(ep.sample_rate),
         input=True,
         frames_per_buffer=ep.frame_bytes // 2,
-        input_device_index=0
+        input_device_index=2
     )
     stream.start_stream()
 
@@ -269,9 +278,6 @@ def detect():
             speech = ep.process(frame)
 
             if speech is not None:
-                #if not prev_in_speech and ep.in_speech:
-                    #print(f"[DEBUG] Speech started at {ep.speech_start:.2f} seconds")
-
                 decoder.process_raw(speech, False, False)
 
                 if decoder.hyp() is not None:
@@ -279,11 +285,9 @@ def detect():
                     print(f"Keyword detected: {keyword}")
 
                     if keyword == "start":
-                        client.send_message('/setgame', 1)  # Send start game signal
-                        start()
-                    elif keyword == "pause":
+                        client.send_message('/setgame', 1) 
+                    elif keyword == "pause game":
                         client.send_message('/setgame', 0)
-                        pause()
                     elif keyword == "easy level":
                         client.send_message('/setlevel', 1) 
                         easy()
@@ -295,12 +299,18 @@ def detect():
                         insane()
                     elif keyword == "power up":
                         client.send_message('/setbigpaddle', 0) 
-                        power()
                     elif keyword == "instructions":
                         client.send_message('/setgame', 0)
                         global welcome_played
                         welcome_played = False 
                         welcome()
+                    elif keyword == "hello":
+                        client.send_message('/hi', 0)
+                        subprocess.run("say Said hello to other player", shell=True)
+                    elif keyword == "what level":
+                        global current_level
+                        level_message = f"say The current level is {current_level}."
+                        subprocess.run(level_message, shell=True)
 
                     decoder.end_utt()
                     decoder.start_utt()
