@@ -99,7 +99,8 @@ def on_receive_game(address, *args):
         ball_tone.start()
     elif int(args[0]) == 0:
         ball_tone.stop()
-        pause()
+        subprocess.run("say game paused", shell=True)
+        #pause()
 
 def on_receive_ball(address, *args):
     # print("> ball position: (" + str(args[0]) + ", " + str(args[1]) + ")")
